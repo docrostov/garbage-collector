@@ -1,5 +1,4 @@
 import {
-  abort,
   availableAmount,
   booleanModifier,
   buy,
@@ -9,6 +8,7 @@ import {
   getCounters,
   guildStoreAvailable,
   inebrietyLimit,
+  Item,
   itemAmount,
   myAdventures,
   myClass,
@@ -29,6 +29,7 @@ import {
 } from "kolmafia";
 import {
   $class,
+  $classes,
   $coinmaster,
   $effect,
   $item,
@@ -42,7 +43,6 @@ import {
   clamp,
   ensureEffect,
   get,
-  getSaleValue,
   have,
   haveInCampground,
   property,
@@ -55,13 +55,13 @@ import {
 import { Macro, withMacro } from "./combat";
 import { runDiet } from "./diet";
 import { freeFightFamiliar, meatFamiliar } from "./familiar";
-import { dailyFights, freeFights } from "./fights";
+import { dailyFights, freeFights, printEmbezzlerLog } from "./fights";
 import {
   checkGithubVersion,
   embezzlerLog,
   globalOptions,
+  HIGHLIGHT,
   kramcoGuaranteed,
-  persistEmbezzlerLog,
   printHelpMenu,
   printLog,
   propertyManager,
@@ -83,6 +83,7 @@ import { dailySetup, postFreeFightDailySetup } from "./dailies";
 import { estimatedTurns } from "./embezzler";
 import { determineDraggableZoneAndEnsureAccess, digitizedMonstersRemaining } from "./wanderer";
 import { potionSetup } from "./potions";
+import { garboAverageValue, printGarboSession, startSession } from "./session";
 
 // Max price for tickets. You should rethink whether Barf is the best place if they're this expensive.
 const TICKET_MAX_PRICE = 500000;
@@ -95,7 +96,7 @@ function ensureBarfAccess() {
     use(ticket);
   }
   if (!get("_dinseyGarbageDisposed")) {
-    print("Disposing of garbage.", "blue");
+    print("Disposing of garbage.", HIGHLIGHT);
     retrieveItem($item`bag of park garbage`);
     visitUrl("place.php?whichplace=airport_stench&action=airport3_tunnels");
     runChoice(6);
@@ -152,8 +153,8 @@ function barfTurn() {
     myInebriety() <= inebrietyLimit() &&
     !embezzlerUp &&
     have($item`cursed magnifying glass`) &&
-    get<number>("cursedMagnifyingGlassCount") === 13 &&
-    get<number>("_voidFreeFights") < 5
+    get("cursedMagnifyingGlassCount") === 13 &&
+    get("_voidFreeFights") < 5
   ) {
     useFamiliar(freeFightFamiliar());
     freeFightOutfit(new Requirement([], { forceEquip: $items`cursed magnifying glass` }));
@@ -230,8 +231,13 @@ function barfTurn() {
     }
   }
   if (totalTurnsPlayed() - startTurns === 1 && get("lastEncounter") === "Knob Goblin Embezzler") {
-    if (embezzlerUp) embezzlerLog.digitizedEmbezzlersFought++;
-    else embezzlerLog.initialEmbezzlersFought++;
+    if (embezzlerUp) {
+      embezzlerLog.digitizedEmbezzlersFought++;
+      embezzlerLog.sources.push("Digitize");
+    } else {
+      embezzlerLog.initialEmbezzlersFought++;
+      embezzlerLog.sources.push("Unknown Source");
+    }
   }
 }
 
@@ -243,7 +249,7 @@ export function canContinue(): boolean {
 }
 
 export function main(argString = ""): void {
-  sinceKolmafiaRevision(26118);
+  sinceKolmafiaRevision(26239);
   print(`${process.env.GITHUB_REPOSITORY}@${process.env.GITHUB_SHA}`);
   const forbiddenStores = property.getString("forbiddenStores").split(",");
   if (!forbiddenStores.includes("3408540")) {
@@ -251,11 +257,24 @@ export function main(argString = ""): void {
     forbiddenStores.push("3408540");
     set("forbiddenStores", forbiddenStores.join(","));
   }
+
+  if (
+    !$classes`Seal Clubber, Turtle Tamer, Pastamancer, Sauceror, Disco Bandit, Accordion Thief, Cow Puncher, Snake Oiler, Beanslinger`.includes(
+      myClass()
+    )
+  ) {
+    throw new Error(
+      "Garbo does not support non-WOL avatar classes. It barely supports WOL avatar classes"
+    );
+  }
+
   if (!get("garbo_skipAscensionCheck", false) && (!get("kingLiberated") || myLevel() < 13)) {
     const proceedRegardless = userConfirm(
       "Looks like your ascension may not be done yet. Are you sure you want to garbo?"
     );
-    if (!proceedRegardless) abort();
+    if (!proceedRegardless) {
+      throw new Error("User interrupt requested. Stopping Garbage Collector.");
+    }
   }
 
   if (get("valueOfAdventure") <= 3500) {
@@ -298,6 +317,10 @@ export function main(argString = ""): void {
     }
   }
 
+  startSession();
+  if (!globalOptions.noBarf && !globalOptions.simulateDiet) {
+    ensureBarfAccess();
+  }
   if (globalOptions.simulateDiet) {
     runDiet();
     return;
@@ -327,9 +350,9 @@ export function main(argString = ""): void {
       : 0;
 
   try {
-    print("Collecting garbage!", "blue");
+    print("Collecting garbage!", HIGHLIGHT);
     if (globalOptions.stopTurncount !== null) {
-      print(`Stopping in ${globalOptions.stopTurncount - myTurncount()}`, "blue");
+      print(`Stopping in ${globalOptions.stopTurncount - myTurncount()}`, HIGHLIGHT);
     }
     print();
 
@@ -352,6 +375,10 @@ export function main(argString = ""): void {
           "libram_savedMacro",
           "maximizerMRUList",
           "testudinalTeachings",
+          "garboEmbezzlerDate",
+          "garboEmbezzlerCount",
+          "garboEmbezzlerSources",
+          "spadingData",
         ]),
       ]
         .sort()
@@ -390,7 +417,7 @@ export function main(argString = ""): void {
           [$items`wind-up spider, plastic nightmare troll, Telltale™ rubber heart`, 3],
         ] as [Item[], number][]
       ).map(([halloweinerOption, choiceId]) => {
-        return { price: getSaleValue(...halloweinerOption), choiceId: choiceId };
+        return { price: garboAverageValue(...halloweinerOption), choiceId: choiceId };
       });
       bestHalloweiner = halloweinerOptions.sort((a, b) => b.price - a.price)[0].choiceId;
     }
@@ -443,19 +470,13 @@ export function main(argString = ""): void {
           preventSlot: $slots`buddy-bjorn, crown-of-thrones`,
         });
 
-        // 2. get a ticket (done before free fights so we can deliver thesis in
-        // Uncle Gator's Country Fun-Time Liquid Waste Sluice)
-        if (!globalOptions.noBarf) {
-          ensureBarfAccess();
-        }
-
-        // 3. do some embezzler stuff
+        // 2. do some embezzler stuff
         freeFights();
         postFreeFightDailySetup(); // setup stuff that can interfere with free fights (VYKEA)
         dailyFights();
 
         if (!globalOptions.noBarf) {
-          // 4. burn turns at barf
+          // 3. burn turns at barf
           potionSetup(false);
           try {
             while (canContinue()) {
@@ -465,11 +486,11 @@ export function main(argString = ""): void {
 
             // buy one-day tickets with FunFunds if user desires
             if (
-              get<boolean>("garbo_buyPass", false) &&
+              get("garbo_buyPass", false) &&
               availableAmount($item`FunFunds™`) >= 20 &&
               !have($item`one-day ticket to Dinseylandfill`)
             ) {
-              print("Buying a one-day tickets", "blue");
+              print("Buying a one-day tickets", HIGHLIGHT);
               buy(
                 $coinmaster`The Dinsey Company Store`,
                 1,
@@ -486,12 +507,8 @@ export function main(argString = ""): void {
     propertyManager.resetAll();
     visitUrl(`account.php?actions[]=flag_aabosses&flag_aabosses=${aaBossFlag}&action=Update`, true);
     if (startingGarden && have(startingGarden)) use(startingGarden);
-    const totalEmbezzlers = persistEmbezzlerLog();
-    print(
-      `You fought ${embezzlerLog.initialEmbezzlersFought} KGEs at the beginning of the day, and an additional ${embezzlerLog.digitizedEmbezzlersFought} digitized KGEs throughout the day. Good work, probably!`,
-      "blue"
-    );
-    print(`Including this, you have fought ${totalEmbezzlers} across all ascensions today`, "blue");
-    printLog("blue");
+    printEmbezzlerLog();
+    printGarboSession();
+    printLog(HIGHLIGHT);
   }
 }

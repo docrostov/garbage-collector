@@ -1,4 +1,4 @@
-import { equip, mallPrice, retrieveItem, toMonster, useFamiliar, visitUrl } from "kolmafia";
+import { equip, mallPrice, toMonster, useFamiliar, visitUrl } from "kolmafia";
 import {
   $effect,
   $item,
@@ -11,6 +11,7 @@ import {
   clamp,
   CrystalBall,
   get,
+  getBanishedMonsters,
   have,
   property,
   Requirement,
@@ -20,6 +21,7 @@ import { freeFightFamiliar } from "./familiar";
 import { ltbRun, setChoice } from "./lib";
 import { Macro } from "./combat";
 import { embezzlerMacro } from "./embezzler";
+import { acquire } from "./acquire";
 
 export function expectedGregs(): number[] {
   const baseGregs = 3;
@@ -44,7 +46,7 @@ export function expectedGregs(): number[] {
   const replacesPerGreg = have($skill`Transcendent Olfaction`) ? 7 : 5;
   const firstReplaces = clamp(sabersLeft * 2 + replacesPerGreg, 0, totalMonsterReplacers);
 
-  gregs.push(baseGregs + orbGregs + timeSpunGregs + sabersLeft * 2 + replacesPerGreg);
+  gregs.push(baseGregs + orbGregs + timeSpunGregs + firstReplaces);
   totalMonsterReplacers -= firstReplaces;
   while (totalMonsterReplacers > 0) {
     gregs.push(baseGregs + orbGregs + clamp(replacesPerGreg, 0, totalMonsterReplacers));
@@ -77,9 +79,12 @@ export function hasMonsterReplacers(): boolean {
 /**
  * Saberfriends a crate if we are able to do so.
  */
-export function saberCrateIfDesired(): void {
-  if (!have($item`Fourth of May Cosplay Saber`) || get("_saberForceUses") >= 5) return;
-  if (get("_saberForceMonster") !== $monster`crate` || get("_saberForceMonsterCount") < 2) {
+export function saberCrateIfSafe(): void {
+  const canSaber = have($item`Fourth of May Cosplay Saber`) && get("_saberForceUses") < 5;
+  const isSafeToSaber = get("beGregariousFightsLeft") === 0 || get("_saberForceMonsterCount") > 0;
+  if (!canSaber || !isSafeToSaber) return;
+
+  do {
     const run = tryFindFreeRun() ?? ltbRun();
 
     useFamiliar(run.constraints.familiar?.() ?? freeFightFamiliar());
@@ -99,7 +104,14 @@ export function saberCrateIfDesired(): void {
         .ifHolidayWanderer(run.macro)
         .abort()
     );
-  }
+  } while (
+    [
+      "Puttin' it on Wax",
+      "Wooof! Wooooooof!",
+      "Playing Fetch*",
+      "Your Dog Found Something Again",
+    ].includes(get("lastEncounter"))
+  );
 }
 
 /**
@@ -134,7 +146,7 @@ function initializeCrates(): void {
     if (
       have($skill`Transcendent Olfaction`) &&
       (!have($effect`On the Trail`) || property.getString("olfactedMonster") !== "crate") &&
-      get<number>("_olfactionUses") < 3
+      get("_olfactionsUsed") < 2
     ) {
       const run = tryFindFreeRun() ?? ltbRun();
       setChoice(1387, 2); // use the force, in case we decide to use that
@@ -167,23 +179,27 @@ function initializeCrates(): void {
           .ifHolidayWanderer(run.macro)
           .abort()
       );
+      visitUrl(`desc_effect.php?whicheffect=${$effect`On the Trail`.descid}`);
     } else if (
       crateStrategy() === "Saber" &&
       (get("_saberForceMonster") !== $monster`crate` || get("_saberForceMonsterCount") === 0) &&
       get("_saberForceUses") < 5
     ) {
-      saberCrateIfDesired();
+      saberCrateIfSafe();
     } else break; // we can break the loop if there's nothing to do
   } while (!["crate", "Using the Force"].includes(get("lastEncounter"))); // loop until we actually hit a crate
 }
 
 function initializeDireWarren(): void {
   const options = $items`human musk, tryptophan dart, Daily Affirmation: Be a Mind Master`;
+  const banishedMonsters = getBanishedMonsters();
+  if (options.some((option) => banishedMonsters.get(option) === $monster`fluffy bunny`)) return;
+
   if (!have($item`miniature crystal ball`)) {
     options.push(...$items`Louder Than Bomb, tennis ball`);
   }
   const banish = options.sort((a, b) => mallPrice(a) - mallPrice(b))[0];
-  retrieveItem(1, banish);
+  acquire(1, banish, 50000, true);
   do {
     adventureMacro(
       $location`The Dire Warren`,

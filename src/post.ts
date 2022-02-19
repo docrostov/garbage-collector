@@ -2,7 +2,7 @@ import {
   cliExecute,
   descToItem,
   getWorkshed,
-  mallPrice,
+  Item,
   myAdventures,
   reverseNumberology,
   runChoice,
@@ -12,6 +12,7 @@ import {
 import { $item, get, getRemainingStomach, property } from "libram";
 import { computeDiet, consumeDiet } from "./diet";
 import { argmax, globalOptions, safeInterrupt, safeRestore } from "./lib";
+import { garboValue, sessionSinceStart } from "./session";
 
 function coldMedicineCabinet(): void {
   if (getWorkshed() !== $item`cold medicine cabinet`) return;
@@ -38,7 +39,7 @@ function coldMedicineCabinet(): void {
     itemChoices.set(item, i);
   }
 
-  const bestItem = argmax(Array.from(itemChoices.keys()).map((i) => [i, mallPrice(i)]));
+  const bestItem = argmax(Array.from(itemChoices.keys()).map((i) => [i, garboValue(i)]));
   const bestChoice = itemChoices.get(bestItem);
   if (bestChoice && bestChoice > 0) {
     visitUrl("campground.php?action=workshed");
@@ -62,10 +63,15 @@ function numberology(): void {
   }
 }
 
+function updateMallPrices(): void {
+  sessionSinceStart().value(garboValue);
+}
+
 export default function postCombatActions(skipDiet = false): void {
   numberology();
   if (!skipDiet) horseradish();
   coldMedicineCabinet();
   safeInterrupt();
   safeRestore();
+  updateMallPrices();
 }

@@ -1,12 +1,17 @@
 import { canAdv } from "canadv.ash";
 import {
-  abort,
+  availableChoiceOptions,
   cliExecute,
   eat,
+  Familiar,
   handlingChoice,
   haveSkill,
   inebrietyLimit,
+  isDarkMode,
+  Item,
+  Location,
   meatDropModifier,
+  Monster,
   mpCost,
   myHp,
   myInebriety,
@@ -47,9 +52,14 @@ import {
   SongBoom,
 } from "libram";
 
-export const embezzlerLog = {
+export const embezzlerLog: {
+  initialEmbezzlersFought: number;
+  digitizedEmbezzlersFought: number;
+  sources: Array<string>;
+} = {
   initialEmbezzlersFought: 0,
   digitizedEmbezzlersFought: 0,
+  sources: [],
 };
 
 export const globalOptions: {
@@ -77,6 +87,7 @@ export const globalOptions: {
 export type BonusEquipMode = "free" | "embezzler" | "dmt" | "barf";
 
 export const WISH_VALUE = 50000;
+export const HIGHLIGHT = isDarkMode() ? "yellow" : "blue";
 
 export const propertyManager = new PropertiesManager();
 
@@ -100,24 +111,20 @@ export function expectedEmbezzlerProfit(): number {
 }
 
 export function safeInterrupt(): void {
-  if (get<boolean>("garbo_interrupt", false)) {
+  if (get("garbo_interrupt", false)) {
     set("garbo_interrupt", false);
-    abort("User interrupt requested. Stopping Garbage Collector.");
+    throw new Error("User interrupt requested. Stopping Garbage Collector.");
   }
 }
 
-export function persistEmbezzlerLog(): number {
+export function resetDailyPreference(trackingPreference: string): boolean {
   const today = todayToString();
-  if (property.getString("garboEmbezzlerDate") !== today) {
-    property.set("garboEmbezzlerDate", today);
-    property.set("garboEmbezzlerCount", 0);
+  if (property.getString(trackingPreference) !== today) {
+    property.set(trackingPreference, today);
+    return true;
+  } else {
+    return false;
   }
-  const totalEmbezzlers =
-    property.getNumber("garboEmbezzlerCount", 0) +
-    embezzlerLog.initialEmbezzlersFought +
-    embezzlerLog.digitizedEmbezzlersFought;
-  property.set("garboEmbezzlerCount", totalEmbezzlers);
-  return totalEmbezzlers;
 }
 
 export function setChoice(adventure: number, value: number): void {
@@ -341,11 +348,15 @@ export function burnLibrams(mpTarget = 0): void {
   }
 }
 
+export function safeRestoreMpTarget(): number {
+  return Math.min(myMaxmp(), 200);
+}
+
 export function safeRestore(): void {
   if (myHp() < myMaxhp() * 0.5) {
     restoreHp(myMaxhp() * 0.9);
   }
-  const mpTarget = Math.min(myMaxmp(), 200);
+  const mpTarget = safeRestoreMpTarget();
   if (myMp() < mpTarget) {
     if (
       (have($item`magical sausage`) || have($item`magical sausage casing`)) &&
@@ -368,10 +379,37 @@ export function checkGithubVersion(): void {
     const mainBranch = gitBranches.find((branchInfo) => branchInfo.name === "main");
     const mainSha = mainBranch && mainBranch.commit ? mainBranch.commit.sha : "CustomBuild";
     if (process.env.GITHUB_SHA === mainSha) {
-      print("Garbo is up to date!", "blue");
+      print("Garbo is up to date!", HIGHLIGHT);
     } else {
       print("Garbo is out of date. Please run 'svn update!", "red");
       print(`${process.env.GITHUB_REPOSITORY}/main is at ${mainSha}`);
     }
   }
+}
+
+export function realmAvailable(
+  identifier: "spooky" | "stench" | "hot" | "cold" | "sleaze" | "fantasy" | "pirate"
+): boolean {
+  if (identifier === "fantasy") {
+    return get(`_frToday`) || get(`frAlways`);
+  } else if (identifier === "pirate") {
+    return get(`_prToday`) || get(`prAlways`);
+  }
+  return get(`_${identifier}AirportToday`, false) || get(`${identifier}AirportAlways`, false);
+}
+
+export function formatNumber(num: number): string {
+  return num.toString().replace(/(\d)(?=(\d{3})+(?!\d))/g, "$1,");
+}
+
+export function getChoiceOption(partialText: string): number {
+  if (handlingChoice()) {
+    const findResults = Object.entries(availableChoiceOptions()).find(
+      (value) => value[1].indexOf(partialText) > -1
+    );
+    if (findResults) {
+      return parseInt(findResults[0]);
+    }
+  }
+  return -1;
 }

@@ -1,13 +1,16 @@
 import {
+  Familiar,
   familiarWeight,
   haveEffect,
   inebrietyLimit,
+  Item,
   myFamiliar,
   myInebriety,
   weightAdjustment,
 } from "kolmafia";
-import { $effect, $familiar, $familiars, $item, $items, get, getSaleValue, have } from "libram";
+import { $effect, $familiar, $familiars, $item, $items, get, have, propertyTypes } from "libram";
 import { argmax, fairyMultiplier, leprechaunMultiplier } from "./lib";
+import { garboAverageValue, garboValue } from "./session";
 
 let _meatFamiliar: Familiar;
 export function meatFamiliar(): Familiar {
@@ -22,7 +25,9 @@ export function meatFamiliar(): Familiar {
       _meatFamiliar = $familiar`Robortender`;
     } else {
       const bestLeps = Familiar.all()
-        .filter(have)
+        // The commerce ghost canot go underwater in most circumstances, and cannot use an amulet coin
+        // We absolutely do not want that
+        .filter((fam) => have(fam) && fam !== $familiar`Ghost of Crimbo Commerce`)
         .sort((a, b) => leprechaunMultiplier(b) - leprechaunMultiplier(a));
       const bestLepMult = leprechaunMultiplier(bestLeps[0]);
       _meatFamiliar = bestLeps
@@ -39,7 +44,9 @@ function myFamiliarWeight(familiar: Familiar | null = null) {
 }
 
 // 5, 10, 15, 20, 25 +5/turn: 5.29, 4.52, 3.91, 3.42, 3.03
-const rotatingFamiliars: { [index: string]: { expected: number[]; drop: Item; pref: string } } = {
+const rotatingFamiliars: {
+  [index: string]: { expected: number[]; drop: Item; pref: propertyTypes.NumericProperty };
+} = {
   "Fist Turkey": {
     expected: [3.91, 4.52, 4.52, 5.29, 5.29],
     drop: $item`Ambitious Turkey`,
@@ -137,7 +144,7 @@ function mimicDropValue() {
   return (
     savedMimicDropValue ??
     (savedMimicDropValue =
-      getSaleValue(...$items`Polka Pop, BitterSweetTarts, Piddles`) / (6.29 * 0.95 + 1 * 0.05))
+      garboAverageValue(...$items`Polka Pop, BitterSweetTarts, Piddles`) / (6.29 * 0.95 + 1 * 0.05))
   );
 }
 
@@ -157,9 +164,9 @@ export function freeFightFamiliar(): Familiar {
     const familiar: Familiar = Familiar.get(familiarName);
     if (have(familiar)) {
       const { expected, drop, pref } = rotatingFamiliars[familiarName];
-      const dropsAlready = get<number>(pref);
+      const dropsAlready = get(pref);
       if (dropsAlready >= expected.length) continue;
-      const value = getSaleValue(drop) / expected[dropsAlready];
+      const value = garboValue(drop) / expected[dropsAlready];
       familiarValue.push([familiar, value]);
     }
   }
@@ -180,4 +187,8 @@ export function freeFightFamiliar(): Familiar {
   familiarValue.push([$familiar`none`, 0]);
 
   return argmax(familiarValue);
+}
+
+export function pocketProfessorLectures(): number {
+  return 2 + Math.ceil(Math.sqrt(familiarWeight($familiar`Pocket Professor`) + weightAdjustment()));
 }

@@ -1,5 +1,5 @@
 import { canAdv } from "canadv.ash";
-import { buy, craftType, myTurncount, print, retrieveItem, use } from "kolmafia";
+import { buy, craftType, Item, Location, myTurncount, print, retrieveItem, use } from "kolmafia";
 import {
   $effect,
   $item,
@@ -8,19 +8,16 @@ import {
   $skill,
   clamp,
   get,
-  getSaleValue,
   Guzzlr,
   have,
   questStep,
   SourceTerminal,
 } from "libram";
 import { estimatedTurns } from "./embezzler";
-import { globalOptions, propertyManager } from "./lib";
+import { globalOptions, HIGHLIGHT, propertyManager, realmAvailable } from "./lib";
+import { garboValue } from "./session";
 
-export enum draggableFight {
-  BACKUP,
-  WANDERER,
-}
+export type DraggableFight = "backup" | "wanderer";
 const WANDERER_PRICE_THRESHOLD = 10000;
 
 function untangleDigitizes(turnCount: number, chunks: number): number {
@@ -56,10 +53,6 @@ interface UnlockableZone {
   noInv: boolean;
 }
 
-function airportAvailable(element: "spooky" | "stench" | "hot" | "cold" | "sleaze"): boolean {
-  return get(`_${element}AirportToday`) || get(`${element}AirportAlways`);
-}
-
 const UnlockableZones: UnlockableZone[] = [
   {
     zone: "Spaaace",
@@ -81,25 +74,25 @@ const UnlockableZones: UnlockableZone[] = [
   },
   {
     zone: "Conspiracy Island",
-    available: () => airportAvailable("spooky"),
+    available: () => realmAvailable("spooky"),
     unlocker: $item`one-day ticket to Conspiracy Island`,
     noInv: true,
   },
   {
     zone: "Dinseylandfill",
-    available: () => airportAvailable("stench"),
+    available: () => realmAvailable("stench"),
     unlocker: $item`one-day ticket to Dinseylandfill`,
     noInv: true,
   },
   {
     zone: "The Glaciest",
-    available: () => airportAvailable("cold"),
+    available: () => realmAvailable("cold"),
     unlocker: $item`one-day ticket to The Glaciest`,
     noInv: true,
   },
   {
     zone: "Spring Break Beach",
-    available: () => airportAvailable("sleaze"),
+    available: () => realmAvailable("sleaze"),
     unlocker: $item`one-day ticket to Spring Break Beach`,
     noInv: true,
   },
@@ -122,11 +115,11 @@ function unlock(loc: Location) {
 }
 
 const backupSkiplist = $locations`The Overgrown Lot, The Skeleton Store, The Mansion of Dr. Weirdeaux`;
-const wandererSkiplist = $locations`The Batrat and Ratbat Burrow, Guano Junction, The Beanbat Chamber, A-Boo Peak, Lair of the Ninja Snowmen`;
-function canWander(location: Location, type: draggableFight) {
-  if (type === draggableFight.BACKUP) {
+const wandererSkiplist = $locations`The Batrat and Ratbat Burrow, Guano Junction, The Beanbat Chamber, A-Boo Peak`;
+function canWander(location: Location, type: DraggableFight) {
+  if (type === "backup") {
     return !backupSkiplist.includes(location) && location.combatPercent >= 100;
-  } else if (type === draggableFight.WANDERER) {
+  } else if (type === "wanderer") {
     return !wandererSkiplist.includes(location) && location.wanderers;
   }
   return false;
@@ -134,11 +127,12 @@ function canWander(location: Location, type: draggableFight) {
 
 function wandererTurnsAvailableToday(zone: Location) {
   return (
-    (canWander(zone, draggableFight.WANDERER)
+    (canWander(zone, "wanderer")
       ? digitizedMonstersRemaining() +
-        (have($item`"I Voted!" sticker`) ? clamp(3 - get("_voteFreeFights"), 0, 3) : 0)
+        (have($item`"I Voted!" sticker`) ? clamp(3 - get("_voteFreeFights"), 0, 3) : 0) +
+        (have($item`cursed magnifying glass`) ? clamp(5 - get("_voidFreeFights"), 0, 5) : 0)
       : 0) +
-    (canWander(zone, draggableFight.BACKUP) && have($item`backup camera`)
+    (canWander(zone, "backup") && have($item`backup camera`)
       ? clamp(11 - get("_backUpUses"), 0, 11)
       : 0)
   );
@@ -200,7 +194,7 @@ const wandererTargets = [
       const tier = Guzzlr.getTier();
       const progressPerTurn = 100 / (10 - get("_guzzlrDeliveries"));
       if (tier) {
-        const buckValue = getSaleValue($item`Never Don't Stop Not Striving`) / 1000;
+        const buckValue = garboValue($item`Guzzlrbuck`);
         switch (tier) {
           case "bronze":
             return (3 * buckValue) / progressPerTurn;
@@ -276,7 +270,7 @@ const wandererTargets = [
   ),
   new WandererTarget(
     "Coinspiracy",
-    () => airportAvailable("spooky") && get("lovebugsUnlocked"),
+    () => realmAvailable("spooky") && get("lovebugsUnlocked"),
     () => $location`The Deep Dark Jungle`,
     () => 2 // slightly higher value
   ),
@@ -288,9 +282,7 @@ const wandererTargets = [
   ),
 ];
 
-export function determineDraggableZoneAndEnsureAccess(
-  type: draggableFight = draggableFight.WANDERER
-): Location {
+export function determineDraggableZoneAndEnsureAccess(type: DraggableFight = "wanderer"): Location {
   const sortedTargets = wandererTargets
     .filter((target: WandererTarget) => target.available() && target.prepareWanderer())
     .map((target: WandererTarget) => target.computeCachedValue())
@@ -298,7 +290,7 @@ export function determineDraggableZoneAndEnsureAccess(
 
   const best = sortedTargets.find((prospect) => {
     const location = prospect.target.location();
-    print(`Trying to place a wanderer using ${prospect.target.name}`, "blue");
+    print(`Trying to place a wanderer using ${prospect.target.name}`, HIGHLIGHT);
     return (
       location &&
       canWander(location, type) &&
@@ -331,4 +323,5 @@ const unsupportedChoices = new Map<Location, { [choice: number]: number | string
   [$location`The Hidden Park`, { [789]: 6 }],
   [$location`A Mob of Zeppelin Protesters`, { [1432]: 1, [857]: 2 }],
   [$location`A-Boo Peak`, { [1430]: 2 }],
+  [$location`Sloppy Seconds Diner`, { [919]: 6 }],
 ]);

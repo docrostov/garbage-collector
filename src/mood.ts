@@ -1,5 +1,6 @@
 import {
   cliExecute,
+  Effect,
   getClanLounge,
   getWorkshed,
   haveEffect,
@@ -19,7 +20,6 @@ import {
   $class,
   $effect,
   $effects,
-  $familiar,
   $item,
   $items,
   $skill,
@@ -32,10 +32,11 @@ import {
   uneffect,
   Witchess,
 } from "libram";
-import { baseMeat, questStep, setChoice } from "./lib";
+import { baseMeat, questStep, safeRestoreMpTarget, setChoice } from "./lib";
 import { estimatedTurns } from "./embezzler";
 import { withStash } from "./clan";
 import synthesize from "./synthesis";
+import { usingPurse } from "./outfit";
 
 Mood.setDefaultOptions({
   songSlots: [
@@ -47,18 +48,14 @@ Mood.setDefaultOptions({
 });
 
 export function meatMood(urKels = false): Mood {
-  const mood = new Mood();
+  // Reserve the amount of MP we try to restore before each fight.
+  const mood = new Mood({ reserveMp: safeRestoreMpTarget() });
 
   mood.potion($item`How to Avoid Scams`, 3 * baseMeat);
   mood.potion($item`resolution: be wealthier`, 0.3 * baseMeat);
   mood.potion($item`resolution: be happier`, 0.15 * 0.45 * 0.8 * 200);
 
-  const flaskValue =
-    get("latteUnlocks").includes("cajun") &&
-    get("latteUnlocks").includes("rawhide") &&
-    have($familiar`Robortender`)
-      ? 5
-      : 0.3 * baseMeat;
+  const flaskValue = usingPurse() ? 5 : 0.3 * baseMeat;
   mood.potion($item`Flaskfull of Hollow`, flaskValue);
 
   mood.skill($skill`Blood Bond`);
@@ -103,7 +100,7 @@ export function meatMood(urKels = false): Mood {
   }
 
   if (itemAmount($item`Bird-a-Day calendar`) > 0) {
-    if (!have($skill`Seek out a Bird`)) {
+    if (!have($skill`Seek out a Bird`) || !get("_canSeekBirds")) {
       use(1, $item`Bird-a-Day calendar`);
     }
 
@@ -126,14 +123,14 @@ export function meatMood(urKels = false): Mood {
       setChoice(1399, 2);
       useSkill($skill`Seek out a Bird`, 6 - get("_birdsSoughtToday"));
     }
+  }
 
-    if (
-      have($skill`Incredible Self-Esteem`) &&
-      $effects`Always be Collecting, Work For Hours a Week`.some((effect) => have(effect)) &&
-      !get("_incredibleSelfEsteemCast")
-    ) {
-      useSkill($skill`Incredible Self-Esteem`);
-    }
+  if (
+    have($skill`Incredible Self-Esteem`) &&
+    $effects`Always be Collecting, Work For Hours a Week`.some((effect) => have(effect)) &&
+    !get("_incredibleSelfEsteemCast")
+  ) {
+    useSkill($skill`Incredible Self-Esteem`);
   }
 
   const canRecord =
@@ -157,7 +154,7 @@ export function meatMood(urKels = false): Mood {
 export function freeFightMood(): Mood {
   const mood = new Mood();
 
-  if (!get<boolean>("_garbo_defectiveTokenAttempted", false)) {
+  if (!get("_garbo_defectiveTokenAttempted", false)) {
     set("_garbo_defectiveTokenAttempted", true);
     withStash($items`defective Game Grid token`, () => {
       if (!get("_defectiveTokenUsed") && have($item`defective Game Grid token`)) {
@@ -208,6 +205,8 @@ export function freeFightMood(): Mood {
     use($item`The Legendary Beat`);
   }
   shrugBadEffects();
+
+  if (getWorkshed() === $item`Asdon Martin keyfob`) mood.drive(AsdonMartin.Driving.Observantly);
 
   return mood;
 }

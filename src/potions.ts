@@ -1,21 +1,37 @@
 import "core-js/modules/es.object.from-entries";
 import {
   cliExecute,
+  Effect,
   effectModifier,
   haveEffect,
   historicalAge,
   historicalPrice,
+  Item,
   itemAmount,
   itemType,
   mallPrice,
-  numericModifier,
   print,
+  setLocation,
   use,
 } from "kolmafia";
-import { $effect, $effects, $familiar, $item, $items, get, getActiveEffects, have } from "libram";
+import {
+  $effect,
+  $effects,
+  $familiar,
+  $item,
+  $items,
+  $location,
+  clamp,
+  get,
+  getActiveEffects,
+  getModifier,
+  have,
+  sumNumbers,
+} from "libram";
 import { acquire } from "./acquire";
-import { baseMeat, globalOptions, pillkeeperOpportunityCost } from "./lib";
+import { baseMeat, globalOptions, HIGHLIGHT, pillkeeperOpportunityCost } from "./lib";
 import { embezzlerCount, estimatedTurns } from "./embezzler";
+import { usingPurse } from "./outfit";
 
 export type PotionTier = "embezzler" | "overlap" | "barf" | "ascending";
 const banned = $items`Uncle Greenspan's Bathroom Finance Guide`;
@@ -79,17 +95,21 @@ export class Potion {
 
   effectDuration(): number {
     return (
-      (this.overrideDuration ?? numericModifier(this.potion, "Effect Duration")) *
+      (this.overrideDuration ?? getModifier("Effect Duration", this.potion)) *
       (this.providesDoubleDuration ? 2 : 1)
     );
   }
 
   meatDrop(): number {
-    return numericModifier(this.effect(), "Meat Drop");
+    setLocation($location`none`);
+    return (
+      getModifier("Meat Drop", this.effect()) +
+      2 * (usingPurse() ? getModifier("Smithsness", this.effect()) : 0)
+    );
   }
 
   familiarWeight(): number {
-    return numericModifier(this.effect(), "Familiar Weight");
+    return getModifier("Familiar Weight", this.effect());
   }
 
   bonusMeat(): number {
@@ -211,7 +231,7 @@ export class Potion {
     }[] = [];
     const limitFunction = limit
       ? (quantity: number) =>
-          Math.min(limit - values.reduce((_total, tier) => tier.quantity, 0), quantity)
+          clamp(limit - sumNumbers(values.map((tier) => tier.quantity)), 0, quantity)
       : (quantity: number) => quantity;
 
     // compute the value of covering embezzlers
@@ -329,7 +349,7 @@ export function potionSetup(embezzlersOnly: boolean): void {
     const possibleDoublingPotions = doublingPotions(embezzlers);
     const bestPotion = possibleDoublingPotions.length > 0 ? possibleDoublingPotions[0] : undefined;
     if (bestPotion && bestPotion.doubleDuration().net(embezzlers) > pillkeeperOpportunityCost()) {
-      print(`Determined that ${bestPotion.potion} was the best potion to double`, "blue");
+      print(`Determined that ${bestPotion.potion} was the best potion to double`, HIGHLIGHT);
       cliExecute("pillkeeper extend");
       acquire(1, bestPotion.potion, bestPotion.doubleDuration().gross(embezzlers));
       bestPotion.use(1);
@@ -379,7 +399,7 @@ export function bathroomFinance(embezzlers: number): void {
   if (touristGross + embezzlerGross > mallPrice(greenspan)) {
     acquire(1, greenspan, touristGross + embezzlerGross);
     if (itemAmount(greenspan) > 0) {
-      print(`Using ${greenspan}!`, "blue");
+      print(`Using ${greenspan}!`, HIGHLIGHT);
       use(greenspan);
     }
   }

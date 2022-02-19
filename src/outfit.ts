@@ -1,3 +1,4 @@
+import { canAdv } from "canadv.ash";
 import {
   bjornifyFamiliar,
   booleanModifier,
@@ -7,6 +8,7 @@ import {
   equippedItem,
   haveEquipped,
   inebrietyLimit,
+  Item,
   myClass,
   myFamiliar,
   myInebriety,
@@ -21,8 +23,11 @@ import {
   $familiar,
   $item,
   $items,
+  $location,
+  $monster,
   $skill,
   $slot,
+  CombatLoversLocket,
   get,
   getKramcoWandererChance,
   have,
@@ -91,6 +96,17 @@ export function freeFightOutfit(requirement?: Requirement): void {
   if (haveEquipped($item`Buddy Bjorn`)) bjornifyFamiliar(bjornChoice.familiar);
   if (haveEquipped($item`Crown of Thrones`)) enthroneFamiliar(bjornChoice.familiar);
   if (haveEquipped($item`Snow Suit`) && get("snowsuit") !== "nose") cliExecute("snowsuit nose");
+
+  const missingEquips = (finalRequirement.maximizeOptions.forceEquip ?? []).filter(
+    (equipment) => !haveEquipped(equipment)
+  );
+  if (missingEquips.length > 0) {
+    throw new Error(
+      `Maximizer failed to equip the following equipment: ${missingEquips
+        .map((equipment) => equipment.name)
+        .join(", ")}. Maybe "refresh all" and try again?`
+    );
+  }
 }
 
 export function refreshLatte(): boolean {
@@ -194,6 +210,15 @@ export function meatOutfit(embezzlerUp: boolean, requirement?: Requirement, sea?
     parameters.push("sea");
   }
 
+  if (
+    embezzlerUp &&
+    myFamiliar() !== $familiar`Pocket Professor` &&
+    CombatLoversLocket.have() &&
+    !CombatLoversLocket.unlockedLocketMonsters().includes($monster`Knob Goblin Embezzler`)
+  ) {
+    forceEquip.push(CombatLoversLocket.locket);
+  }
+
   const bjornAlike = bestBjornalike(forceEquip);
   const compiledRequirements = (requirement ?? new Requirement([], {})).merge(
     new Requirement(
@@ -241,6 +266,17 @@ export function meatOutfit(embezzlerUp: boolean, requirement?: Requirement, sea?
   ) {
     cliExecute("retrocape robot kill");
   }
+
+  if (
+    (compiledRequirements.maximizeOptions.forceEquip ?? []).some(
+      (equipment) => !haveEquipped(equipment)
+    )
+  ) {
+    throw new Error(
+      "Maximizer failed to equip desired equipment. Maybe try 'refresh all' and run again?"
+    );
+  }
+
   if (sea) {
     if (!booleanModifier("Adventure Underwater")) {
       for (const airSource of waterBreathingEquipment) {
@@ -264,3 +300,14 @@ export function meatOutfit(embezzlerUp: boolean, requirement?: Requirement, sea?
 
 export const waterBreathingEquipment = $items`The Crown of Ed the Undying, aerated diving helmet, crappy Mer-kin mask, Mer-kin gladiator mask, Mer-kin scholar mask, old SCUBA tank`;
 export const familiarWaterBreathingEquipment = $items`das boot, little bitty bathysphere`;
+
+let cachedUsingPurse: boolean | null = null;
+export function usingPurse(): boolean {
+  if (cachedUsingPurse === null) {
+    cachedUsingPurse =
+      !have($item`latte lovers member's mug`) ||
+      !have($familiar`Robortender`) ||
+      !canAdv($location`The Black Forest`, false);
+  }
+  return cachedUsingPurse;
+}

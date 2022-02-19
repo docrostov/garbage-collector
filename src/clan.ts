@@ -6,6 +6,7 @@ import {
   getClanId,
   getClanName,
   handlingChoice,
+  Item,
   print,
   putStash,
   refreshStash,
@@ -17,6 +18,7 @@ import {
 } from "kolmafia";
 import { $familiar, $item, $items, $monster, Clan, get, getFoldGroup, have, set } from "libram";
 import { Macro } from "./combat";
+import { HIGHLIGHT } from "./lib";
 
 export function withStash<T>(itemsToTake: Item[], action: () => T): T {
   const manager = new StashManager();
@@ -29,8 +31,11 @@ export function withStash<T>(itemsToTake: Item[], action: () => T): T {
 }
 
 export function withVIPClan<T>(action: () => T): T {
-  let clanIdOrName: number | string | undefined = get("garbo_vipClan", undefined);
-  if (!clanIdOrName && have($item`Clan VIP Lounge key`)) {
+  const clanIdOrNameString = get("garbo_vipClan");
+  let clanIdOrName = clanIdOrNameString.match(/^\d+$/)
+    ? parseInt(clanIdOrNameString)
+    : clanIdOrNameString;
+  if (clanIdOrName === "" && have($item`Clan VIP Lounge key`)) {
     if (
       userConfirm(
         "The preference 'garbo_vipClan' is not set. Use the current clan as a VIP clan? (Defaults to yes in 15 seconds)",
@@ -60,26 +65,10 @@ export class StashManager {
   enabled: boolean;
   taken = new Map<Item, number>();
 
-  constructor(clanIdOrName?: string | number) {
-    if (clanIdOrName === undefined) {
-      clanIdOrName = get("garbo_stashClan", undefined);
-      if (!clanIdOrName) {
-        if (
-          userConfirm(
-            "The preference 'garbo_stashClan' is not set. Use the current clan as a stash clan? (Defaults to yes in 15 seconds)",
-            15000,
-            true
-          )
-        ) {
-          clanIdOrName = getClanId();
-          set("garbo_stashClan", clanIdOrName);
-        } else {
-          throw "No garbo_stashClan set.";
-        }
-      }
-    }
-    this.clanIdOrName = clanIdOrName;
-    this.enabled = 0 !== clanIdOrName && "none" !== clanIdOrName;
+  constructor() {
+    const clanIdOrName = get("garbo_stashClan");
+    this.clanIdOrName = clanIdOrName.match(/^\d+$/) ? parseInt(clanIdOrName) : clanIdOrName;
+    this.enabled = 0 !== this.clanIdOrName && "none" !== this.clanIdOrName;
   }
 
   take(...items: Item[]): void {
@@ -91,7 +80,7 @@ export class StashManager {
         `Stash access is disabled. Ignoring request to borrow "${items
           .map((value) => value.name)
           .join(", ")}" from clan stash.`,
-        "yellow"
+        HIGHLIGHT
       );
       return;
     }
@@ -109,7 +98,7 @@ export class StashManager {
           try {
             if (stashAmount(fold) > 0) {
               if (takeStash(1, fold)) {
-                print(`Took ${fold.name} from stash in ${getClanName()}.`, "blue");
+                print(`Took ${fold.name} from stash in ${getClanName()}.`, HIGHLIGHT);
                 if (fold !== item) cliExecute(`fold ${item.name}`);
                 this.taken.set(item, (this.taken.get(item) ?? 0) + 1);
                 break;
@@ -143,7 +132,7 @@ export class StashManager {
   putBack(...items: Item[]): void {
     if (items.length === 0) return;
     if (visitUrl("fight.php").includes("You're fighting")) {
-      print("In fight, trying to get away to return items to stash...", "blue");
+      print("In fight, trying to get away to return items to stash...", HIGHLIGHT);
       Macro.if_($monster`Knob Goblin Embezzler`, Macro.attack().repeat())
         .tryItem(...$items`Louder Than Bomb, divine champagne popper`)
         .step("runaway")
@@ -169,7 +158,7 @@ export class StashManager {
             enthroneFamiliar($familiar`none`);
           }
           if (putStash(count, item)) {
-            print(`Returned ${item.name} to stash in ${getClanName()}.`, "blue");
+            print(`Returned ${item.name} to stash in ${getClanName()}.`, HIGHLIGHT);
             this.taken.delete(item);
           } else {
             throw `Failed to return ${item.name} to stash.`;
